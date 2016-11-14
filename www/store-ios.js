@@ -326,6 +326,8 @@ store.verbosity = 0;
 /// - iOS: NOT IN USE
 store.sandbox = false;
 
+store.maxValidationRetries = 4;
+
 (function(){
 'use strict';
 
@@ -401,6 +403,7 @@ var ERROR_CODES_BASE = 6777000;
 /*///*/     store.INVALID_PAYLOAD   = 6778001;
 /*///*/     store.CONNECTION_FAILED = 6778002;
 /*///*/     store.PURCHASE_EXPIRED  = 6778003;
+/*///*/     store.PURCHASE_INVALID  = 6778004;
 
 })();
 (function() {
@@ -568,17 +571,14 @@ store.Product.prototype.verify = function() {
             else {
                 store.log.debug("verify -> error: " + JSON.stringify(data));
                 var msg = (data && data.error && data.error.message ? data.error.message : '');
-                var err = new store.Error({
-                    code: store.ERR_VERIFICATION_FAILED,
-                    message: "Transaction verification failed: " + msg
-                });
+                var err;
                 if (data.code === store.PURCHASE_EXPIRED) {
                     err = new store.Error({
                         code: store.ERR_PAYMENT_EXPIRED,
                         message: "Transaction expired: " + msg
                     });
-                }
-                if (data.code === store.PURCHASE_EXPIRED) {
+
+                    /*
                     if (nRetry < 2 && store._refreshForValidation) {
                         nRetry += 1;
                         store._refreshForValidation(function() {
@@ -586,21 +586,39 @@ store.Product.prototype.verify = function() {
                         });
                     }
                     else {
+                    */
                         store.error(err);
                         store.utils.callExternal('verify.error', errorCb, err);
                         store.utils.callExternal('verify.done', doneCb, that);
                         that.trigger("expired");
                         that.set("state", store.VALID);
                         store.utils.callExternal('verify.expired', expiredCb, that);
-                    }
+                    //}
                 }
-                else if (nRetry < 4) {
+                else if (data.code === store.PURCHASE_INVALID) {
+                    err = new store.Error({
+                        code: store.ERR_PAYMENT_INVALID,
+                        message: "Transaction invalid: " + msg
+                    });
+                    store.error(err);
+                    store.utils.callExternal('verify.error', errorCb, err);
+                    store.utils.callExternal('verify.done', doneCb, that);
+                    that.trigger("invalidTransaction");
+                    that.set("state", store.VALID);
+                    store.utils.callExternal('verify.invalid', expiredCb, that);
+                }
+                else if (nRetry < store.maxValidationRetries) {
                     // It failed... let's try one more time. Maybe the appStoreReceipt wasn't updated yet.
                     nRetry += 1;
                     delay(this, tryValidation, 1000 * nRetry * nRetry);
                 }
                 else {
-                    store.log.debug("validation failed 5 times, stop retrying, trigger an error");
+                    err = new store.Error({
+                        code: store.ERR_VERIFICATION_FAILED,
+                        message: "Transaction verification failed: " + msg
+                    });
+                    store.log.debug("validation failed " + (store.maxValidationRetries + 1) +
+                        " times, stop retrying, trigger an error");
                     store.error(err);
                     store.utils.callExternal('verify.error', errorCb, err);
                     store.utils.callExternal('verify.done', doneCb, that);
@@ -702,6 +720,8 @@ store.Product.prototype.verify = function() {
 })();
 (function(){
 'use strict';
+
+store.supportIOS6 = true;
 
 ///
 /// ## <a name="errors"></a>*store.Error* object
@@ -1459,6 +1479,7 @@ store.refresh = function() {
         return;
     }
 
+    /*
     store.log.debug("refresh -> checking products state (" + store.products.length + " products)");
     for (var i = 0; i < store.products.length; ++i) {
         var p = store.products[i];
@@ -1477,6 +1498,7 @@ store.refresh = function() {
         else if (p.state === store.OWNED && (p.type === store.FREE_SUBSCRIPTION || p.type === store.PAID_SUBSCRIPTION))
             p.set("state", store.APPROVED);
     }
+    */
 
     store.trigger("re-refreshed");
 };
@@ -2042,6 +2064,7 @@ var protectCall = function (callback, context) {
     }
     catch (err) {
         log('exception in ' + context + ': "' + err + '"');
+        log('stack: ' + err.stack);
     }
 };
 
@@ -2990,11 +3013,16 @@ function storekitError(errorCode, errorText, options) {
 // store.restore = function() {
 // };
 store.when("re-refreshed", function() {
-    storekit.restore();
+    if (store.supportIOS6) {
+        store.log.info('restoring completed transactions');
+        storekit.restore();
+    }
+
     storekit.refreshReceipts(function(data) {
         // What the point of this?
         // Why create a product whose ID equals the application bundle ID (?)
         // Is it just to trigger force a validation of the appStoreReceipt?
+        /*
         if (data) {
             var p = data.bundleIdentifier ? store.get(data.bundleIdentifier) : null;
             if (!p) {
@@ -3013,6 +3041,26 @@ store.when("re-refreshed", function() {
             };
             p.trigger("loaded");
             p.set('state', store.APPROVED);
+        }
+        */
+        store.log.debug("refresh -> checking products state (" + store.products.length + " products)");
+        for (var i = 0; i < store.products.length; ++i) {
+            var p = store.products[i];
+            store.log.debug("refresh -> product id " + p.id + " (" + p.alias + ")");
+            store.log.debug("           in state '" + p.state + "'");
+
+            // resend the "approved" event to all approved purchases.
+            // give user a chance to try delivering the content again and
+            // finish the purchase.
+            if (p.state === store.APPROVED)
+                p.trigger(store.APPROVED);
+
+            // also send back subscription to approved so their expiry date gets validated again
+            // BEWARE. If user is offline, he won't be able to access the content
+            // because validation will fail with a connection timeout.
+            else { //if (p.state === store.OWNED && (p.type === store.FREE_SUBSCRIPTION || p.type === store.PAID_SUBSCRIPTION))
+                p.set("state", store.APPROVED);
+            }
         }
     });
 });
