@@ -902,7 +902,7 @@ static NSString *rootAppleCA = @"MIIEuzCCA6OgAwIBAgIBAjANBgkqhkiG9w0BAQUFADBiMQs
 #endif
 }
 
-- (void):(SKRequest *)request didFailWithError:(NSError*) error {
+- (void)request:(SKRequest *)request didFailWithError:(NSError *)error {
     DLog(@"In-App Store unavailable (ERROR %li)", (unsigned long)error.code);
     DLog(@"%@", [error localizedDescription]);
 
