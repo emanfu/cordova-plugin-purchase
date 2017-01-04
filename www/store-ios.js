@@ -373,6 +373,7 @@ var ERROR_CODES_BASE = 6777000;
 /*///*/     store.ERR_PAYMENT_EXPIRED     = ERROR_CODES_BASE + 20;
 /*///*/     store.ERR_DOWNLOAD            = ERROR_CODES_BASE + 21;
 /*///*/     store.ERR_SUBSCRIPTION_UPDATE_NOT_AVAILABLE = ERROR_CODES_BASE + 22;
+/*///*/     store.ERR_CANCEL_REFRESH_RECEIPTS = ERROR_CODES_BASE + 23;
 
 ///
 /// ### product states
@@ -2102,8 +2103,9 @@ InAppPurchase.prototype.ERR_REFRESH_RECEIPTS    = ERROR_CODES_BASE + 11;
 InAppPurchase.prototype.ERR_PAUSE_DOWNLOADS     = ERROR_CODES_BASE + 12;
 InAppPurchase.prototype.ERR_RESUME_DOWNLOADS    = ERROR_CODES_BASE + 13;
 InAppPurchase.prototype.ERR_CANCEL_DOWNLOADS    = ERROR_CODES_BASE + 14;
+InAppPurchase.prototype.ERR_CANCEL_REFRESH_RECEIPTS = ERROR_CODES_BASE + 23;
 
-var initialized = false;
+    var initialized = false;
 
 InAppPurchase.prototype.init = function (options, success, error) {
     this.options = {
@@ -2481,10 +2483,18 @@ InAppPurchase.prototype.refreshReceipts = function(successCb, errorCb) {
         protectCall(successCb, "refreshReceipts.success", data);
     };
 
-    var error = function(errMessage) {
-        log('refresh receipt failed: ' + errMessage);
-        protectCall(that.options.error, 'options.error', InAppPurchase.prototype.ERR_REFRESH_RECEIPTS, 'Failed to refresh receipt: ' + errMessage);
-        protectCall(errorCb, "refreshReceipts.error", InAppPurchase.prototype.ERR_REFRESH_RECEIPTS, 'Failed to refresh receipt: ' + errMessage);
+    var error = function(err) {
+        log('refresh receipt failed: ' + err.message);
+        var errorCode, errorMessage;
+        if (err.code === 16) {
+            errorCode = InAppPurchase.prototype.ERR_CANCEL_REFRESH_RECEIPTS;
+            errorMessage = 'Failed to refresh receipt: user cancelled AppStore login';
+        } else {
+            errorCode = InAppPurchase.prototype.ERR_REFRESH_RECEIPTS;
+            errorMessage = 'Failed to refresh receipt: ' + err.message;
+        }
+        protectCall(that.options.error, 'options.error', errorCode, errorMessage);
+        protectCall(errorCb, "refreshReceipts.error", errorCode, errorMessage);
     };
 
     log('refreshing appStoreReceipt');
