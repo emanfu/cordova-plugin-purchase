@@ -75,6 +75,7 @@ function iabLoaded(validProducts) {
             p.set({
                 title: validProducts[i].title || validProducts[i].name,
                 price: validProducts[i].price || validProducts[i].formattedPrice,
+                priceMicros: validProducts[i].price_amount_micros,
                 description: validProducts[i].description,
                 currency: validProducts[i].price_currency_code ? validProducts[i].price_currency_code : "",
                 state: store.VALID
@@ -166,6 +167,11 @@ store.when("product", "finished", function(product) {
     if (product.type === store.CONSUMABLE || product.type === store.NON_RENEWING_SUBSCRIPTION) {
         var transaction = product.transaction;
         product.transaction = null;
+        var id;
+        if(transaction === null)
+            id = "";
+        else
+            id = transaction.id;
         store.inappbilling.consumePurchase(
             function() { // success
                 store.log.debug("plugin -> consumable consumed");
@@ -179,7 +185,7 @@ store.when("product", "finished", function(product) {
                 });
             },
             product.id,
-            transaction.id
+            id
         );
     }
     else {
