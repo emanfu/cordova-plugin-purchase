@@ -585,7 +585,6 @@ store.Product.prototype.verify = function() {
                         message: "Transaction expired: " + msg
                     });
 
-                    /*
                     if (nRetry < 2 && store._refreshForValidation) {
                         nRetry += 1;
                         store._refreshForValidation(function() {
@@ -600,7 +599,7 @@ store.Product.prototype.verify = function() {
                         that.trigger("expired");
                         that.set("state", store.VALID);
                         store.utils.callExternal('verify.expired', expiredCb, that);
-                    //}
+                    }
                 }
                 else if (data.code === store.PURCHASE_INVALID) {
                     err = new store.Error({
