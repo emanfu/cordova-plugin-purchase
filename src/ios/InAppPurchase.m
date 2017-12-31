@@ -111,13 +111,13 @@ char* base64(const void* binaryData, int len, int *flen)
 {
   const unsigned char* bin = (const unsigned char*) binaryData ;
   char* res ;
-  
+
   int rc = 0 ; // result counter
   int byteNo ; // I need this after the loop
-  
+
   int modulusLen = len % 3 ;
   int pad = ((modulusLen&1)<<1) + ((modulusLen&2)>>1) ; // 2 gives 1 and 1 gives 2, but 0 gives 0.
-  
+
   *flen = 4*(len + pad)/3 ;
   res = (char*) malloc( *flen + 1 ) ; // and one for the null
   if( !res )
@@ -126,7 +126,7 @@ char* base64(const void* binaryData, int len, int *flen)
     puts( "I must stop because I could not get enough" ) ;
     return 0;
   }
-  
+
   for( byteNo = 0 ; byteNo <= len-3 ; byteNo+=3 )
   {
     unsigned char BYTE0=bin[byteNo];
@@ -137,7 +137,7 @@ char* base64(const void* binaryData, int len, int *flen)
     res[rc++]  = b64[ ((0x0f&BYTE1)<<2) + (BYTE2>>6) ] ;
     res[rc++]  = b64[ 0x3f&BYTE2 ] ;
   }
-  
+
   if( pad==2 )
   {
     res[rc++] = b64[ bin[byteNo] >> 2 ] ;
@@ -152,7 +152,7 @@ char* base64(const void* binaryData, int len, int *flen)
     res[rc++]  = b64[ (0x0f&bin[byteNo+1])<<2 ] ;
     res[rc++] = '=';
   }
-  
+
   res[rc] = 0; // NULL TERMINATOR! ;)
   return res ;
 }
@@ -173,7 +173,7 @@ unsigned char* unbase64( const char* ascii, int len, int *flen )
   }
   if( safeAsciiPtr[ len-1 ]=='=' )  ++pad ;
   if( safeAsciiPtr[ len-2 ]=='=' )  ++pad ;
-  
+
   *flen = 3*len/4 - pad ;
   bin = (unsigned char*)malloc( *flen ) ;
   if( !bin )
@@ -182,25 +182,25 @@ unsigned char* unbase64( const char* ascii, int len, int *flen )
     puts( "I must stop because I could not get enough" ) ;
     return 0;
   }
-  
+
   for( charNo=0; charNo <= len - 4 - pad ; charNo+=4 )
   {
     int A=unb64[safeAsciiPtr[charNo]];
     int B=unb64[safeAsciiPtr[charNo+1]];
     int C=unb64[safeAsciiPtr[charNo+2]];
     int D=unb64[safeAsciiPtr[charNo+3]];
-    
+
     bin[cb++] = (A<<2) | (B>>4) ;
     bin[cb++] = (B<<4) | (C>>2) ;
     bin[cb++] = (C<<6) | (D) ;
   }
-  
+
   if( pad==1 )
   {
     int A=unb64[safeAsciiPtr[charNo]];
     int B=unb64[safeAsciiPtr[charNo+1]];
     int C=unb64[safeAsciiPtr[charNo+2]];
-    
+
     bin[cb++] = (A<<2) | (B>>4) ;
     bin[cb++] = (B<<4) | (C>>2) ;
   }
@@ -208,10 +208,10 @@ unsigned char* unbase64( const char* ascii, int len, int *flen )
   {
     int A=unb64[safeAsciiPtr[charNo]];
     int B=unb64[safeAsciiPtr[charNo+1]];
-    
+
     bin[cb++] = (A<<2) | (B>>4) ;
   }
-  
+
   return bin;
 }
 */
@@ -270,6 +270,34 @@ unsigned char* unbase64( const char* ascii, int len, int *flen )
 @synthesize observer;
 @synthesize currentDownloads;
 
+// It is critical that this plugin is initialized before Firebase related
+// plugins, otherwise [FIRApp configure] will install a SKPaymentTransactionObserver
+// before this plugin and hijack some events.
+// To ensure that, the user has to install this plugin before installing any of
+// those Firebase related plugins.
+//
+- (void)pluginInitialize {
+    NSLog(@"Starting InAppPurchase plugin");
+
+    if (![SKPaymentQueue canMakePayments]) {
+        DLog(@"Cant make payments, plugin disabled.");
+        return;
+    }
+
+    self.list = [[NSMutableDictionary alloc] init];
+    self.retainer = [[NSMutableDictionary alloc] init];
+    self.currentDownloads = [[NSMutableDictionary alloc] init];
+    unfinishedTransactions = [[NSMutableDictionary alloc] init];
+    unprocessedTransactions = [[NSMutableArray alloc] init];
+
+    //make sure we add only one observer
+    if(observer==nil) {
+        NSLog(@"Adding TransactionObserver");
+        [[SKPaymentQueue defaultQueue]  addTransactionObserver:self];
+        observer = self;
+    }
+}
+
 -(void) debug: (CDVInvokedUrlCommand*)command {
     g_debugEnabled = YES;
 }
@@ -289,17 +317,24 @@ unsigned char* unbase64( const char* ascii, int len, int *flen )
         return;
     }
 
-    self.list = [[NSMutableDictionary alloc] init];
-    self.retainer = [[NSMutableDictionary alloc] init];
-    self.currentDownloads = [[NSMutableDictionary alloc] init];
-    unfinishedTransactions = [[NSMutableDictionary alloc] init];
+//    self.list = [[NSMutableDictionary alloc] init];
+//    self.retainer = [[NSMutableDictionary alloc] init];
+//    self.currentDownloads = [[NSMutableDictionary alloc] init];
+//    unfinishedTransactions = [[NSMutableDictionary alloc] init];
     //make sure we add only one observer
-    if(observer==nil) {
-        [[SKPaymentQueue defaultQueue]  addTransactionObserver:self];
-        observer = self;
-    }
+//    if(observer==nil) {
+//        [[SKPaymentQueue defaultQueue]  addTransactionObserver:self];
+//        observer = self;
+//    }
     pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"InAppPurchase initialized"];
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+    
+    // if we have unprocessed transactions, process them now.
+    if ([unprocessedTransactions count] > 0) {
+        DLog("in setup(): Processing unprocessed transactions...");
+        [self paymentQueue:[SKPaymentQueue defaultQueue] updatedTransactions:unprocessedTransactions];
+        [unprocessedTransactions removeAllObjects];
+    }
 }
 
 /**
@@ -422,6 +457,16 @@ unsigned char* unbase64( const char* ascii, int len, int *flen )
     NSString *state, *error, *transactionIdentifier, *transactionReceipt, *productId;
     NSArray *downloads;
     NSInteger errorCode;
+
+    // If setup is not called yet, store the transactions in unprocessedTracations array
+    // first. Once setup() is called, we will process those transactions right away.
+    // We have to process the transactions after setup(), otherwise the user's js handlers
+    // for those in-app-purchase events won't be ready.
+    if (!g_initialized) {
+        DLog("setup() not called yet. Storing transactions for later processing");
+        [unprocessedTransactions addObjectsFromArray:transactions];
+        return;
+    }
 
     for (SKPaymentTransaction *transaction in transactions)
     {

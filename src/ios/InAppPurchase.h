@@ -23,6 +23,7 @@
     NSMutableDictionary *retainer;
     NSMutableDictionary *unfinishedTransactions;
     NSMutableDictionary *currentDownloads;
+    NSMutableArray *unprocessedTransactions;
 }
 @property (nonatomic,retain) NSMutableDictionary *list;
 @property (nonatomic,retain) NSMutableDictionary *retainer;
